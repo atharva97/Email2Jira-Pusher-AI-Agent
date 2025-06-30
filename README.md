@@ -46,8 +46,8 @@ No missed emails. No manual copy-pasting.
 
 ## 🛠️ How It Works
 
-1. Runs every 5 minutes using n8n's schedule node  
-2. Fetches latest 50 Gmail messages  
+1. Runs every 5 minutes using n8n's schedule node (Can customize in the "Schedule Trigger" node)
+2. Fetches latest 50 Gmail messages (Can customize in the "Gmail" node)
 3. For each email:
    - Extracts subject and body  
    - Sends to your chosen LLM for natural language parsing  
@@ -59,12 +59,12 @@ No missed emails. No manual copy-pasting.
 
 ---
 
-## ⏱️ How to Change Scan Frequency
+## ⏱️ How to Change Email Scan Frequency
 
 1. Open the workflow in n8n  
 2. Click on the **Schedule Trigger** node  
 3. Set **Trigger Interval** to your desired value (e.g., 10 minutes)  
-4. Save and reactivate the workflow
+4. Save and re-run the workflow
 
 You can scan as often or rarely as you like.
 
@@ -75,9 +75,9 @@ You can scan as often or rarely as you like.
 1. Open your n8n instance  
 2. Click **Import** and upload `Email2Jira_Pusher_AI_Agent.json`  
 3. Create these credentials in n8n:
-   - Gmail OAuth2 (using Google Cloud)  
+   - Gmail OAuth2 (using Google Cloud Console)  
    - Jira Software Cloud API (via your Atlassian account)  
-   - HTTP Auth for your LLM (`Authorization: Bearer <your-api-key>`)  
+   - HTTP Auth for your LLM (e.g., OpenRouter: `Authorization: Bearer YOUR-OPENROUTER-KEY`, [get a key](https://openrouter.ai)) 
 4. Test manually, then click **Activate**
 
 That's it — your workflow is now live and working.
@@ -94,7 +94,7 @@ Yes. You can:
 - Use Gmail API with free Google Cloud setup  
 - Use OpenRouter’s free LLMs (note: some are slow or imprecise)  
 - Use Jira’s free-tier API access  
-- Run n8n locally or on a free VPS (e.g. Railway, Render)
+- Run n8n locally (For e.g. through Docker)
 
 __Can I use Outlook instead of Gmail?__  
 Not in this version — you’d need to modify the trigger node.
