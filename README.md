@@ -115,5 +115,19 @@ Yes! You can:
 This project is released under the [MIT License](./LICENSE). Use it freely.
 
 ---
+> ⚠️ **Disclaimer**  
+> The Email2Jira Pusher AI Agent is provided on an “as is” and “as available” basis, for informational and educational purposes only.  
+> The author makes no warranties, either express or implied, regarding the performance, accuracy, reliability, or suitability of this workflow for any particular purpose.  
+>  
+> By using this software, you acknowledge and agree that:  
+> • You are solely responsible for how you configure and deploy the workflow in your environment.  
+> • The author is not liable for any loss of data, missed communications, failed API interactions, or unintended automation outcomes.  
+> • You are responsible for complying with the terms of service and acceptable use policies of any third-party APIs (such as Gmail, Jira, or OpenRouter) that this workflow interacts with.  
+> • This software does not constitute professional, legal, or operational advice. It is your responsibility to verify all outputs and ensure safe, compliant usage, especially in regulated environments (e.g. finance, healthcare).  
+>  
+> This project is not affiliated with, endorsed by, or supported by Atlassian, Google, OpenAI, or any third-party vendor referenced in the workflow.  
+>  
+> **Use at your own risk.** You assume full responsibility for any consequences that may result from using this project.
+---
 
 Built with ❤️ using [n8n](https://n8n.io) and your preferred LLM.
