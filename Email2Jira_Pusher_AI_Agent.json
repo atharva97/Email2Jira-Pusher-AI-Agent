@@ -1,0 +1,472 @@
+{
+  "name": "Email2Jira Pusher AI Agent",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes"
+            },
+            {}
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        -280
+      ],
+      "id": "a949882b-40ee-42be-bab6-a302ad6fe74a",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "simple": false,
+        "filters": {
+          "q": ""
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        220,
+        -280
+      ],
+      "id": "79552d5c-b823-40f2-94af-f6c8a12a539f",
+      "name": "Gmail",
+      "webhookId": "6da62a1e-f4a3-40cf-8bcd-8ace5b5dcae7",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "IbotznfAifJPOWJe",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        440,
+        -80
+      ],
+      "id": "9d4ae34f-7f73-46f0-9908-fd1eeec007d5",
+      "name": "When chat message received",
+      "webhookId": "e4563a10-5eed-4656-801d-4b80a0375cc5"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.subject }}{{ $json.body }}",
+        "messages": {
+          "messageValues": [
+            {
+              "type": "HumanMessagePromptTemplate",
+              "message": "={{ $json.subject }}{{ $json.body }}  Input: You are a support-ticket classification agent. You receive as input a JSON array called “emails”, each element an object with:\n  • “id”:       a unique identifier  \n  • “subject”:  the email subject line  \n  • “body”:     the full email text  \n\nYour task:\n1. For each email, decide if it is a support request.  \n   – If it is NOT a support request, omit it from the output.  \n2. For each support request:\n   a. Include the original “subject”.  \n   b. Include the “description”, which is the full body text.  \n   c. Perform sentiment/urgency analysis on the combined subject + body:\n      • Assign “priority” as one of:  \n        – “Highest”  \n        – “High”  \n        – “Medium”  \n        – “Low”  \n        – “Lowest”  \n   d. Determine the best “team” to handle it (e.g. “Development”, “Billing”, “Operations”, “Customer Success”, etc.), based on content.  \n3. Return a JSON array named “tickets”, where each object has exactly these fields:\n   • “id”          : copied from the input  \n   • “subject”     : the original subject  \n   • “description” : the original body  \n   • “priority”    : one of “Highest”, “High”, “Medium”, “Low”, “Lowest”  \n   • “team”        : string  \n\nConstraints:\n- Do not output any additional fields or explanations.  \n- Output valid JSON only.  \n\nExample input:\n```json\n{\n  \"emails\": [\n    {\n      \"id\": \"e1\",\n      \"subject\": \"App crashed on load\",\n      \"body\": \"Every time I open the app it crashes immediately…\"\n    },\n    {\n      \"id\": \"e2\",\n      \"subject\": \"Lunch tomorrow?\",\n      \"body\": \"Want to grab a bite tomorrow at noon?\"\n    }\n  ]\n}"
+            }
+          ]
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.6,
+      "position": [
+        660,
+        -180
+      ],
+      "id": "fc0c347f-8dd6-463b-9e3f-52a9dc0298bf",
+      "name": "Basic LLM Chain"
+    },
+    {
+      "parameters": {
+        "model": "deepseek/deepseek-r1:free",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        748,
+        40
+      ],
+      "id": "707573e6-bb86-4755-aa51-c834615d786d",
+      "name": "OpenRouter Chat Model",
+      "credentials": {
+        "openRouterApi": {
+          "id": "Xgiz14i2bEagur3P",
+          "name": "OpenRouter account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return items.map(item => {\n  const msg = item.json;\n\n  // 1) Subject\n  const subject = msg.subject || '';\n\n  // 2) Plain-text body if available\n  let body = msg.text?.trim() || '';\n\n  // 3) If no plain-text, fall back to stripping tags from html\n  if (!body && msg.html) {\n    body = msg.html\n      // remove all tags\n      .replace(/<style[\\s\\S]*?<\\/style>/gi, '')      // strip style blocks\n      .replace(/<script[\\s\\S]*?<\\/script>/gi, '')    // strip script blocks\n      .replace(/<\\/?[^>]+(>|$)/g, '')                // strip HTML tags\n      .replace(/\\s{2,}/g, ' ')                       // collapse multiple spaces\n      .trim();\n  }\n\n  return {\n    json: {\n      id:       msg.id,\n      threadId: msg.threadId,\n      subject,\n      body,\n    }\n  };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        -280
+      ],
+      "id": "1481d730-ef0e-433a-832c-e95b0d831f5f",
+      "name": "Parse Email"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract & de-duplicate tickets\nconst seen = new Set();\nconst out  = [];\n\nfor (const item of items) {\n  // pull the JSON blob out of the ```json…``` wrapper\n  const raw = item.json.text;\n  const match = raw.match(/```json([\\s\\S]*?)```/);\n  if (!match) continue;\n\n  let parsed;\n  try {\n    parsed = JSON.parse(match[1].trim());\n  } catch (e) {\n    throw new Error(\"Failed to parse LLM output JSON: \" + e.message);\n  }\n\n  for (const ticket of parsed.tickets || []) {\n    if (seen.has(ticket.id)) continue;   // skip dupes\n    seen.add(ticket.id);\n\n    // optional: normalize priority casing\n    ticket.priority =\n      ticket.priority.charAt(0).toUpperCase() +\n      ticket.priority.slice(1).toLowerCase();\n\n    out.push({ json: ticket });\n  }\n}\n\nreturn out;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1220,
+        -40
+      ],
+      "id": "5e802d6b-9900-45b7-83f3-bd975c613f26",
+      "name": "Extract Tickets"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1800,
+        -120
+      ],
+      "id": "360c1355-a569-4c60-af38-561c48aa7ff6",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {
+        "project": {
+          "__rl": true,
+          "value": "10000",
+          "mode": "list",
+          "cachedResultName": "Customer Feedback Portal (CFP)"
+        },
+        "issueType": {
+          "__rl": true,
+          "value": "10001",
+          "mode": "list",
+          "cachedResultName": "Task"
+        },
+        "summary": "={{ $json.subject }}",
+        "additionalFields": {
+          "description": "={{ $json.description }}"
+        }
+      },
+      "type": "n8n-nodes-base.jira",
+      "typeVersion": 1,
+      "position": [
+        2060,
+        -160
+      ],
+      "id": "eb6c947b-55c6-4743-947a-f4f04aba1749",
+      "name": "Jira Software",
+      "credentials": {
+        "jiraSoftwareCloudApi": {
+          "id": "tQd09WVWPiS8McoE",
+          "name": "Jira SW Cloud account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "limit": 100,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.jira",
+      "typeVersion": 1,
+      "position": [
+        1036,
+        -280
+      ],
+      "id": "c0525cc2-a3f5-4a36-ba17-65fd857d4b11",
+      "name": "Jira Software1",
+      "credentials": {
+        "jiraSoftwareCloudApi": {
+          "id": "tQd09WVWPiS8McoE",
+          "name": "Jira SW Cloud account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get all extracted tickets with error handling\nlet extractedTickets = [];\ntry {\n  extractedTickets = $('Extract Tickets').all();\n  if (!extractedTickets || extractedTickets.length === 0) {\n    console.log('No extracted tickets found');\n    return [];\n  }\n} catch (error) {\n  console.log('Error accessing Extract Tickets node:', error.message);\n  return [];\n}\n\n// Get all existing Jira issues with error handling\nlet existingIssues = [];\ntry {\n  existingIssues = $('Format Issues').all();\n  if (!existingIssues || existingIssues.length === 0) {\n    console.log('No existing issues found - treating all tickets as new');\n    // If no existing issues, return all extracted tickets\n    return extractedTickets;\n  }\n} catch (error) {\n  console.log('Error accessing Existing Issues in JIRA node:', error.message);\n  console.log('Treating all tickets as new due to error');\n  return extractedTickets;\n}\n\n// Extract subjects from existing issues for comparison\nconst existingSubjects = existingIssues.map(issue => {\n  const subject = issue.json?.subject || issue.json?.fields?.summary || '';\n  return subject.toLowerCase().trim();\n});\n\n// Array to store new tickets (non-duplicates)\nconst newTickets = [];\n\n// OUTER LOOP: For each extracted ticket\nfor (let i = 0; i < extractedTickets.length; i++) {\n  const currentTicket = extractedTickets[i].json;\n  const currentSubject = (currentTicket.subject || '').toLowerCase().trim();\n  \n  console.log(`\\n--- Checking ticket ${i + 1}/${extractedTickets.length}: \"${currentTicket.subject}\"`);\n  \n  let isDuplicate = false;\n  \n  // INNER LOOP: Check against all existing Jira issues\n  for (let j = 0; j < existingSubjects.length; j++) {\n    const existingSubject = existingSubjects[j];\n    \n    // Word-by-word comparison\n    if (currentSubject === existingSubject) {\n      isDuplicate = true;\n      console.log(`  ✗ DUPLICATE found with existing issue: \"${existingSubject}\"`);\n      break; // Stop checking once we find a duplicate\n    }\n  }\n  \n  // If no duplicate found, add to new tickets\n  if (!isDuplicate) {\n    console.log(`  ✓ NEW ticket - will be created: \"${currentTicket.subject}\"`);\n    newTickets.push({ json: currentTicket });\n  }\n}\n\n// Output summary\nconsole.log(`\\n=== SUMMARY ===`);\nconsole.log(`Total extracted tickets: ${extractedTickets.length}`);\nconsole.log(`Existing Jira issues: ${existingIssues.length}`);\nconsole.log(`New tickets to create: ${newTickets.length}`);\n\n// Return all new tickets\nreturn newTickets;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1540,
+        -160
+      ],
+      "id": "cd1efbc3-d426-4b7a-980d-9ed79aeb3dda",
+      "name": "Code"
+    },
+    {
+      "parameters": {
+        "content": "Emails",
+        "height": 520,
+        "width": 460,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        160,
+        -340
+      ],
+      "id": "837f767e-1c3f-4721-88b9-8b18318e75c7",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "Process Emails",
+        "height": 520,
+        "width": 340,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        640,
+        -340
+      ],
+      "id": "6f88ddab-820b-4934-97e4-6adff6afb821",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "Pull issues from JIRA",
+        "height": 240,
+        "width": 460
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1000,
+        -340
+      ],
+      "id": "25949985-6530-47fc-b57c-6dc3f53e02a6",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "content": "Extract Tickets from Emails",
+        "height": 260,
+        "width": 460
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1000,
+        -80
+      ],
+      "id": "a6e23096-5996-4950-b32c-1e6e4c069edd",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "content": "Check Tickets if already in JIRA",
+        "height": 260,
+        "width": 220,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1480,
+        -220
+      ],
+      "id": "2e90de37-ab9d-45f2-b77a-985c9b9f3cf7",
+      "name": "Sticky Note4"
+    },
+    {
+      "parameters": {
+        "jsCode": "return items.map(item => {\n  const issue = item.json;\n\n  return {\n    json: {\n      id: issue.key,  // Jira issue key\n      subject: issue.fields.summary || '',\n      description: issue.fields.description || '',\n      priority: issue.fields.priority?.name || 'Medium',\n      team: issue.fields.labels?.includes('billing') ? 'Billing'\n           : issue.fields.labels?.includes('support') ? 'Customer Success'\n           : issue.fields.labels?.includes('ops') ? 'Operations'\n           : 'Development'  // Default\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1260,
+        -280
+      ],
+      "id": "b7772397-4ed0-4f2d-a8c6-25c838065670",
+      "name": "Format Issues"
+    },
+    {
+      "parameters": {
+        "content": "Create issues in JIRA",
+        "height": 520,
+        "width": 520,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1720,
+        -340
+      ],
+      "id": "4249f7b3-9409-4fb6-89b2-402430de4b7e",
+      "name": "Sticky Note5"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Gmail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail": {
+      "main": [
+        [
+          {
+            "node": "Parse Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenRouter Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When chat message received": {
+      "main": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Basic LLM Chain": {
+      "main": [
+        [
+          {
+            "node": "Extract Tickets",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Jira Software1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Email": {
+      "main": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Tickets": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [
+          {
+            "node": "Jira Software",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Jira Software": {
+      "main": [
+        []
+      ]
+    },
+    "Jira Software1": {
+      "main": [
+        [
+          {
+            "node": "Format Issues",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Issues": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "4aeb48a4-4721-4baa-b461-8757b9ed824b",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "46cef9850e0896e2f800d092eee202e828dd36d5c887d0e6c0bfbc49ac3b7a8c"
+  },
+  "id": "Y8Ye8BJ5PENzANrB",
+  "tags": []
+}
